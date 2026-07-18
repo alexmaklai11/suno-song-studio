@@ -119,11 +119,23 @@
     <section id="view-create">
       <div class="card">
         <h2>New Song</h2>
-        <label>Base lyrics (the lyrics to transform)</label>
+        <div class="flex-between">
+          <label>Base lyrics (the lyrics to transform)</label>
+          <button class="btn small secondary" id="modeBtn" onclick="toggleCustomMode()" style="margin-top:0">✍️ Custom request mode</button>
+        </div>
         <textarea id="baseLyrics" placeholder="Paste your base lyrics here..."></textarea>
 
+        <div id="customBlock" class="hidden">
+          <div class="flex-between" style="margin-top:10px">
+            <label style="margin:0">Custom request — your words, your rules</label>
+            <button class="play" id="createMicBtn" onclick="toggleMic('createReq','createReqStatus',this)" title="Dictate — transcribes live" style="width:38px;height:38px;font-size:16px">🎤</button>
+          </div>
+          <textarea id="createReq" style="min-height:100px" placeholder='e.g. "Take my base lyrics and turn them into a slow ballad. Keep verse 1 as is. Model the style after Daisies. Make the chorus shorter and about coming home."'></textarea>
+          <div class="status" id="createReqStatus">It knows all your reference songs, topics and model lyrics — mention any of them by name.</div>
+        </div>
+
         <div class="row">
-          <div>
+          <div id="refBlock">
             <label>Reference song (style)</label>
             <select id="refSelect" onchange="onRefSelect()"></select>
             <div class="preview-inline">
@@ -137,7 +149,7 @@
           </div>
         </div>
 
-        <div class="row" style="margin-top:4px">
+        <div class="row" style="margin-top:4px" id="approachRow">
           <div>
             <label>Lyrics approach</label>
             <select id="approachSelect">
@@ -196,7 +208,7 @@
         <div class="card">
           <div class="flex-between">
             <h2>Custom Request</h2>
-            <button class="play" id="micBtn" onclick="toggleMic()" title="Dictate your request — transcribes live as you speak" style="width:38px;height:38px;font-size:16px">🎤</button>
+            <button class="play" id="micBtn" onclick="toggleMic('customReq','reqStatus',this)" title="Dictate your request — transcribes live as you speak" style="width:38px;height:38px;font-size:16px">🎤</button>
           </div>
           <p class="status" style="margin-top:0">Tell it exactly what to change — type it or hit the mic and talk (words appear as you speak). E.g. "Keep the chorus exactly, shorten verse 2, remove the bridge."</p>
           <textarea id="customReq" style="min-height:80px" placeholder='e.g. "I love the chorus, keep it. Make verse 1 about the airport moment. Cut verse 3."'></textarea>
@@ -617,18 +629,55 @@ window.generate = async function(){
   const topicId=document.getElementById('topicSelect').value;
   const st=document.getElementById('genStatus');
   if(!data.apiKey){ st.className='status err'; st.textContent='Add your Claude API key in Settings first.'; return; }
-  if(!base){ st.className='status err'; st.textContent='Paste some base lyrics first.'; return; }
   const song=data.referenceSongs.find(s=>s.id===refId);
   const topic=data.topics.find(t=>t.id===topicId);
   const approach=document.getElementById('approachSelect').value;
   const useModel=document.getElementById('modelChk').checked;
-  if(!song){ st.className='status err'; st.textContent='Choose a reference song.'; return; }
-  if(!topic && approach!=='polish'){ st.className='status err'; st.textContent='Choose a topic (or switch approach to "Minor improvements").'; return; }
+  const creq=document.getElementById('createReq').value.trim();
+  if(customMode){
+    if(micOn){ try{recog.stop();}catch(e){} }
+    if(!creq){ st.className='status err'; st.textContent='Type or dictate your custom request first.'; return; }
+  }else{
+    if(!base){ st.className='status err'; st.textContent='Paste some base lyrics first.'; return; }
+    if(!song){ st.className='status err'; st.textContent='Choose a reference song.'; return; }
+    if(!topic && approach!=='polish'){ st.className='status err'; st.textContent='Choose a topic (or switch approach to "Minor improvements").'; return; }
+  }
 
   const btn=document.getElementById('generateBtn');
   btn.disabled=true;
   st.className='status'; st.innerHTML='<span class="spinner"></span>Generating with Claude...';
 
+  let prompt;
+  if(customMode){
+    const songsList=data.referenceSongs.map(s=>`- ${s.name} — ${s.artist}`).join('\n');
+    const topicsList=data.topics.map(t=>`- ${t.name}: ${(t.text||'').slice(0,300)}`).join('\n');
+    let models=(data.modelLyrics||[]).map(m=>`--- ${m.name} ---\n${m.text}`).join('\n\n');
+    if(models.length>6000) models=models.slice(0,6000);
+    prompt = `You are an expert songwriter creating lyrics and a style prompt for Suno (AI music generation).
+
+THE USER'S CUSTOM REQUEST — this is the boss, follow it precisely (it may be transcribed speech, interpret naturally):
+"""
+${creq}
+"""
+
+${base?`BASE LYRICS (use them however the request describes):\n"""\n${base}\n"""\n`:''}${topic?`SELECTED TOPIC: ${topic.name}${topic.text?' — '+topic.text:''}\n`:''}
+USER'S DATABASE (refer to these when the request mentions them by name):
+Reference songs:
+${songsList||'(none)'}
+Topics:
+${topicsList||'(none)'}
+Model lyrics (style examples — imitate their writing style only if the request asks; never copy their content):
+"""
+${models||'(none)'}
+"""
+
+Do two tasks:
+1. NEW LYRICS: do exactly what the custom request asks — keep what it says to keep, change what it says to change. Use section tags like [Verse]/[Chorus].
+2. STYLE PROMPT: a detailed Suno style description matching what the request implies. If the request names one of the reference songs, capture that song's musical style. Include genre, tempo/BPM feel, mood, instrumentation, production, vocal style, era. NEVER mention artist names or song titles in the style (Suno rejects them). Under 900 characters, comma-separated.
+
+Respond with ONLY valid JSON, no markdown fences:
+{"lyrics": "...", "style": "..."}`;
+  } else {
   const APPROACHES = {
     heavy: `Completely rewrite the base lyrics into new lyrics about the given TOPIC. Go HEAVY on the topic: tell its story in detail, pack the lyrics with the topic's specific facts, imagery and moments. The topic should drive every section.`,
     mild:  `Completely rewrite the base lyrics into new lyrics about the given TOPIC, but use the topic LIGHTLY: pick only the 2-3 best ideas or images from it and build around those. Don't overload the lyrics with information — keep them breathable and universal.`,
@@ -648,7 +697,7 @@ ${examples}
 IMPORTANT: Write the new lyrics in the same writing style as these MODEL LYRICS — match their level of detail, vocabulary, tone, line lengths, rhyme tendencies and structure habits. Do NOT copy their actual content, phrases or subjects.`;
   }
 
-  const prompt = `You are an expert songwriter and music producer helping create prompts for Suno (AI music generation).
+  prompt = `You are an expert songwriter and music producer helping create prompts for Suno (AI music generation).
 
 REFERENCE SONG: "${song.name}" by ${song.artist}
 ${topic ? `TOPIC: ${topic.name}${topic.text ? ' — ' + topic.text : ''}` : 'TOPIC: (none — not needed for this task)'}
@@ -665,6 +714,7 @@ Do two tasks:
 
 Respond with ONLY valid JSON, no markdown fences:
 {"lyrics": "...", "style": "..."}`;
+  }
 
   try{
     const res = await fetch('https://api.anthropic.com/v1/messages',{
@@ -690,12 +740,12 @@ Respond with ONLY valid JSON, no markdown fences:
     document.getElementById('outLyrics').textContent=parsed.lyrics;
     document.getElementById('outStyle').textContent=parsed.style;
     document.getElementById('results').classList.remove('hidden');
-    lastGenCtx={songName:song.name, artist:song.artist, topicName:(topic?topic.name:'Polish — no topic')};
+    lastGenCtx={songName:(song?song.name:'Custom request'), artist:(song?song.artist:''), topicName:(topic?topic.name:(customMode?'Custom':'Polish — no topic'))};
     st.className='status ok'; st.textContent='Done!';
 
     data.history.unshift({
       id:uid8(), date:new Date().toISOString(),
-      songName:song.name, artist:song.artist, topicName:(topic?topic.name:'Polish — no topic'),
+      songName:(song?song.name:'Custom request'), artist:(song?song.artist:''), topicName:(topic?topic.name:(customMode?'Custom':'Polish — no topic')),
       baseLyrics:base, lyrics:parsed.lyrics, style:parsed.style
     });
     if(data.history.length>100) data.history.length=100;
@@ -709,17 +759,24 @@ Respond with ONLY valid JSON, no markdown fences:
 };
 /* ================= CUSTOM REQUEST (text + live voice) ================= */
 let lastGenCtx = null; // {songName, artist, topicName}
+let customMode=false;
+window.toggleCustomMode = function(){
+  customMode=!customMode;
+  document.getElementById('refBlock').classList.toggle('hidden', customMode);
+  document.getElementById('approachRow').classList.toggle('hidden', customMode);
+  document.getElementById('customBlock').classList.toggle('hidden', !customMode);
+  document.getElementById('modeBtn').textContent = customMode ? '← Standard mode' : '✍️ Custom request mode';
+};
 let recog=null, micOn=false, micBaseText='';
-window.toggleMic = function(){
-  const st=document.getElementById('reqStatus');
-  const btn=document.getElementById('micBtn');
+window.toggleMic = function(taId, stId, btn){
+  const st=document.getElementById(stId);
+  const ta=document.getElementById(taId);
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
   if(!SR){ st.className='status err'; st.textContent='Live voice input isn\'t supported in this browser — try Chrome or Safari.'; return; }
   if(micOn){ try{recog.stop();}catch(e){} return; }
   recog=new SR();
   recog.continuous=true; recog.interimResults=true;
   recog.lang=(navigator.language&&navigator.language.startsWith('ru'))?'ru-RU':'en-US';
-  const ta=document.getElementById('customReq');
   micBaseText=ta.value?ta.value.trim()+' ':'';
   recog.onresult=(e)=>{
     let finalTxt='', interim='';
