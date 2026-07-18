@@ -123,6 +123,25 @@
           </div>
         </div>
 
+        <div class="row" style="margin-top:4px">
+          <div>
+            <label>Lyrics approach</label>
+            <select id="approachSelect">
+              <option value="heavy">Full rewrite — heavy on topic (tell the topic's story in detail)</option>
+              <option value="mild">Full rewrite — mild on topic (just the best ideas, lighter)</option>
+              <option value="mix">50/50 mix (keep the best of base lyrics + weave in topic)</option>
+              <option value="polish">Minor improvements only (polish base lyrics, no topic needed)</option>
+            </select>
+          </div>
+          <div>
+            <label>Style modeling</label>
+            <div class="list-item" style="margin-top:0; cursor:pointer" onclick="document.getElementById('modelChk').click(); event.preventDefault();">
+              <div class="info" style="font-size:13px">Model from my Model Lyrics<small id="modelChkNote">Uses the lyrics saved in Settings as style examples</small></div>
+              <input type="checkbox" id="modelChk" style="width:18px; height:18px; flex-shrink:0" onclick="event.stopPropagation()">
+            </div>
+          </div>
+        </div>
+
         <div id="addSongInline" class="hidden">
           <label>New song name</label>
           <input id="inlineSongName" placeholder="e.g. Blinding Lights">
@@ -193,6 +212,17 @@
         <textarea id="topicText" style="min-height:80px" placeholder="Describe the topic in as much detail as you want..."></textarea>
         <button class="btn small" onclick="addTopic()">+ Add topic</button>
         <div id="topicList"></div>
+      </div>
+
+      <div class="card">
+        <h2>Model Lyrics</h2>
+        <p class="status" style="margin-top:0">Add lyrics you love (yours or anyone's). When "Model from my Model Lyrics" is ticked in Create, generation mimics their style — detail level, tone, line lengths, rhymes — without copying content.</p>
+        <label>Name (song title or any label)</label>
+        <input id="modelName" placeholder="e.g. My style — storytelling ballad">
+        <label>Lyrics</label>
+        <textarea id="modelText" style="min-height:120px" placeholder="Paste the full lyrics here..."></textarea>
+        <button class="btn small" onclick="addModel()">+ Add model lyrics</button>
+        <div id="modelList"></div>
       </div>
 
       <div class="card">
@@ -362,6 +392,30 @@ function renderTopics(){
   if([...sel.options].some(o=>o.value===cur)) sel.value=cur;
 }
 
+/* ================= MODEL LYRICS ================= */
+window.addModel = function(){
+  const n=document.getElementById('modelName').value.trim();
+  const t=document.getElementById('modelText').value.trim();
+  if(!n||!t) return alert('Enter a name and paste the lyrics.');
+  if(!data.modelLyrics) data.modelLyrics=[];
+  data.modelLyrics.push({id:uid8(), name:n, text:t});
+  document.getElementById('modelName').value=''; document.getElementById('modelText').value='';
+  touch();
+};
+window.delModel = function(id){ data.modelLyrics=(data.modelLyrics||[]).filter(m=>m.id!==id); touch(); };
+function renderModels(){
+  const el=document.getElementById('modelList');
+  if(!el) return;
+  const list=data.modelLyrics||[];
+  el.innerHTML = list.map(m=>{
+    const preview=m.text.split('\n').slice(0,2).join(' / ').slice(0,90);
+    return `<div class="list-item"><div class="info"><b>${esc(m.name)}</b><small>${esc(preview)}...</small></div>
+     <button class="del" onclick="delModel('${m.id}')">✕</button></div>`;
+  }).join('') || '<p class="status">No model lyrics yet.</p>';
+  const note=document.getElementById('modelChkNote');
+  if(note) note.textContent = list.length ? list.length+' model lyric'+(list.length>1?'s':'')+' saved in Settings' : 'None saved yet — add some in Settings';
+}
+
 /* ================= CHORD CREATION ================= */
 const FAMOUS_CHORDS = [
   {name:'Let It Be', artist:'The Beatles', chords:['C','G','Am','F'], pattern:'I – V – vi – IV', note:'The most-used progression in pop'},
@@ -492,25 +546,46 @@ window.generate = async function(){
   if(!base){ st.className='status err'; st.textContent='Paste some base lyrics first.'; return; }
   const song=data.referenceSongs.find(s=>s.id===refId);
   const topic=data.topics.find(t=>t.id===topicId);
+  const approach=document.getElementById('approachSelect').value;
+  const useModel=document.getElementById('modelChk').checked;
   if(!song){ st.className='status err'; st.textContent='Choose a reference song.'; return; }
-  if(!topic){ st.className='status err'; st.textContent='Choose a topic.'; return; }
+  if(!topic && approach!=='polish'){ st.className='status err'; st.textContent='Choose a topic (or switch approach to "Minor improvements").'; return; }
 
   const btn=document.getElementById('generateBtn');
   btn.disabled=true;
   st.className='status'; st.innerHTML='<span class="spinner"></span>Generating with Claude...';
 
+  const APPROACHES = {
+    heavy: `Completely rewrite the base lyrics into new lyrics about the given TOPIC. Go HEAVY on the topic: tell its story in detail, pack the lyrics with the topic's specific facts, imagery and moments. The topic should drive every section.`,
+    mild:  `Completely rewrite the base lyrics into new lyrics about the given TOPIC, but use the topic LIGHTLY: pick only the 2-3 best ideas or images from it and build around those. Don't overload the lyrics with information — keep them breathable and universal.`,
+    mix:   `Rewrite roughly 50% of the base lyrics. KEEP the strongest lines, hooks and phrases of the base lyrics as they are, and weave the TOPIC into the rest. The result should feel like the base song and the topic met halfway.`,
+    polish:`Make MINOR improvements to the base lyrics only: strengthen weak lines, improve rhymes, flow and word choices. Keep the subject, meaning, structure and most of the original words. Do NOT change what the song is about.${topic ? ' You may take light inspiration from the TOPIC if it clearly helps a line.' : ''}`
+  };
+  let modelBlock = '';
+  if(useModel && (data.modelLyrics||[]).length){
+    let examples = (data.modelLyrics||[]).map(m=>`--- ${m.name} ---\n${m.text}`).join('\n\n');
+    if(examples.length>7000) examples = examples.slice(0,7000);
+    modelBlock = `
+
+MODEL LYRICS (style examples to imitate):
+"""
+${examples}
+"""
+IMPORTANT: Write the new lyrics in the same writing style as these MODEL LYRICS — match their level of detail, vocabulary, tone, line lengths, rhyme tendencies and structure habits. Do NOT copy their actual content, phrases or subjects.`;
+  }
+
   const prompt = `You are an expert songwriter and music producer helping create prompts for Suno (AI music generation).
 
 REFERENCE SONG: "${song.name}" by ${song.artist}
-TOPIC: ${topic.name}${topic.text ? ' — ' + topic.text : ''}
+${topic ? `TOPIC: ${topic.name}${topic.text ? ' — ' + topic.text : ''}` : 'TOPIC: (none — not needed for this task)'}
 BASE LYRICS:
 """
 ${base}
-"""
+"""${modelBlock}
 
 Do two tasks:
 
-1. NEW LYRICS: Rewrite the base lyrics into new lyrics about the given TOPIC. Keep the overall length, line count, section structure (verses, chorus, bridge, etc.) and rhythm/singability very close to the base lyrics. Keep section tags like [Verse]/[Chorus] if present, or add them if helpful for Suno.
+1. NEW LYRICS: ${APPROACHES[approach]} In all cases: keep the overall length, line count, section structure (verses, chorus, bridge, etc.) and rhythm/singability very close to the base lyrics. Keep section tags like [Verse]/[Chorus] if present, or add them if helpful for Suno.
 
 2. STYLE PROMPT: Write a detailed Suno style description capturing the musical style of the reference song: genre and sub-genre, tempo/BPM feel, mood, key instrumentation, production characteristics, vocal style (gender, tone, delivery), and era/sound. IMPORTANT: do NOT mention the artist name or song title anywhere in the style description (Suno rejects artist names). Keep it under 900 characters, written as a comma-separated descriptive prompt.
 
@@ -545,7 +620,7 @@ Respond with ONLY valid JSON, no markdown fences:
 
     data.history.unshift({
       id:uid8(), date:new Date().toISOString(),
-      songName:song.name, artist:song.artist, topicName:topic.name,
+      songName:song.name, artist:song.artist, topicName:(topic?topic.name:'Polish — no topic'),
       baseLyrics:base, lyrics:parsed.lyrics, style:parsed.style
     });
     if(data.history.length>100) data.history.length=100;
@@ -599,7 +674,7 @@ window.copyHist = function(id, field, btn){
   });
 };
 
-function renderAll(){ renderSongs(); renderTopics(); renderHistory(); renderChords(); }
+function renderAll(){ renderSongs(); renderTopics(); renderHistory(); renderChords(); renderModels(); }
 renderAll();
 </script>
 </body>
