@@ -503,25 +503,31 @@ async function fetchChordsFor(id){
   chordFetching.add(id);
   renderChords();
   const st=document.getElementById('chordStatus');
-  const prompt=`Give the simplified guitar chord progressions for "${song.name}" by ${song.artist}.
-Rules: use ONLY basic open guitar chords from this set: C, D, Dm, E, Em, F, G, A, Am, B7. Transpose to an easy key if needed (mention capo position in the note to match the original). 3 to 6 chords per section.
-If the verse, chorus (or bridge) use DIFFERENT progressions, return each as its own section (max 3 sections, labeled "Verse", "Chorus", "Bridge"). If the whole song loops one progression, return just ONE section with an empty label.
-Respond with ONLY valid JSON, no markdown fences:
-{"sections":[{"label":"Verse","chords":["C","G","Am","F"],"pattern":"I – V – vi – IV"},{"label":"Chorus","chords":["F","C","G"],"pattern":"IV – I – V"}],"note":"short tip, e.g. capo 2 to match original key"}`;
+  const prompt=`Research the REAL chord progressions of the song "${song.name}" by ${song.artist}.
+Use web search to find actual chord transcriptions (Ultimate Guitar, Chordify, ChordU, official tabs, etc.). Do NOT guess from general style — find the real chords for THIS song. Search up to 3 times if needed.
+Then report them accurately, section by section:
+- Return each distinct section (Verse, Pre-Chorus, Chorus, Bridge...) with its own progression — max 4 sections. If the song truly loops one progression, return one section with empty label.
+- Simplify to basic open guitar chords ONLY from this set: C, D, Dm, E, Em, F, G, A, Am, B7 — transpose to an easy key and state the capo position in the note so it matches the original recording.
+- In the note, also mention the source you based it on (e.g. "per Ultimate Guitar tab").
+Finish your reply with ONLY this JSON (no markdown fences):
+{"sections":[{"label":"Verse","chords":["C","G","Am","F"],"pattern":"I – V – vi – IV"},{"label":"Chorus","chords":["F","C","G"],"pattern":"IV – I – V"}],"note":"capo 2 to match original; per Ultimate Guitar"}`;
   try{
     const res=await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',
       headers:{'x-api-key':data.apiKey,'anthropic-version':'2023-06-01','content-type':'application/json','anthropic-dangerous-direct-browser-access':'true'},
-      body: JSON.stringify({model:'claude-sonnet-4-5', max_tokens:400, messages:[{role:'user',content:prompt}]})
+      body: JSON.stringify({model:'claude-sonnet-4-5', max_tokens:3000,
+        tools:[{type:'web_search_20250305', name:'web_search', max_uses:3}],
+        messages:[{role:'user',content:prompt}]})
     });
     if(!res.ok){ const err=await res.json().catch(()=>({})); throw new Error(err?.error?.message||('API error '+res.status)); }
     const json=await res.json();
-    let text=json.content?.[0]?.text||'';
-    const first=text.indexOf('{'), last=text.lastIndexOf('}');
-    const parsed=JSON.parse(text.slice(first,last+1));
+    let text=(json.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n');
+    let idx=text.lastIndexOf('{"sections"');
+    if(idx===-1) idx=text.indexOf('{');
+    const last=text.lastIndexOf('}');
+    const parsed=JSON.parse(text.slice(idx,last+1));
     if(!data.chords) data.chords={};
-    if(parsed.sections) data.chords[id]={sections:parsed.sections, note:parsed.note||''};
-    else data.chords[id]={chords:parsed.chords, pattern:parsed.pattern||'', note:parsed.note||''};
+    data.chords[id]={sections:parsed.sections, note:parsed.note||'', v:2};
     chordFetching.delete(id);
     touch();
   }catch(e){
@@ -533,7 +539,7 @@ Respond with ONLY valid JSON, no markdown fences:
 let autoFetchRunning=false;
 async function autoFetchChords(){
   if(autoFetchRunning || !uid || !data.apiKey) return;
-  const missing = data.referenceSongs.filter(s=>!(data.chords&&data.chords[s.id]&&data.chords[s.id].sections) && !chordFetching.has(s.id));
+  const missing = data.referenceSongs.filter(s=>!(data.chords&&data.chords[s.id]&&data.chords[s.id].v===2) && !chordFetching.has(s.id));
   if(!missing.length) return;
   autoFetchRunning=true;
   for(const s of missing){ await fetchChordsFor(s.id); }
