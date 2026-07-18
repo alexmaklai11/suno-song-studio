@@ -427,13 +427,20 @@ const FAMOUS_CHORDS = [
   {name:'Knockin’ on Heaven’s Door', artist:'Bob Dylan', chords:['G','D','Am','G','D','C'], pattern:'I – V – ii / I – V – IV', note:'Two lines that repeat forever'},
   {name:'Hallelujah', artist:'Leonard Cohen', chords:['C','Am','C','Am','F','G','C'], pattern:'I – vi loop into IV – V – I', note:'Verse shape, simplified'}
 ];
-function chordCardHTML(title, artist, obj, extra){
-  const chips = obj.chords.map(c=>`<span class="chord-chip">${esc(c)}</span>`).join('<span class="chord-arrow">→</span>');
-  return `<div class="chord-card"><b>${esc(title)}</b><small>${esc(artist)}</small>
-    <div class="chord-line">${chips}</div>
-    ${obj.pattern?`<div class="chord-pattern">${esc(obj.pattern)}</div>`:''}
-    ${obj.note?`<div class="chord-note">${esc(obj.note)}</div>`:''}
-    ${extra||''}</div>`;
+const chordFetching = new Set();
+function chordCardHTML(title, artist, obj, playHtml, body){
+  let inner = body;
+  if(!inner){
+    const chips = obj.chords.map(c=>`<span class="chord-chip">${esc(c)}</span>`).join('<span class="chord-arrow">→</span>');
+    inner = `<div class="chord-line">${chips}</div>
+      ${obj.pattern?`<div class="chord-pattern">${esc(obj.pattern)}</div>`:''}
+      ${obj.note?`<div class="chord-note">${esc(obj.note)}</div>`:''}`;
+  }
+  return `<div class="chord-card">
+    <div class="flex-between" style="align-items:flex-start; gap:8px; margin-bottom:10px">
+      <div style="overflow:hidden"><b>${esc(title)}</b><small style="margin-bottom:0">${esc(artist)}</small></div>
+      ${playHtml||''}
+    </div>${inner}</div>`;
 }
 function renderChords(){
   const el=document.getElementById('chordScroll');
@@ -442,25 +449,28 @@ function renderChords(){
   let html='';
   data.referenceSongs.forEach(s=>{
     const c=data.chords[s.id];
+    const play=`<button class="play" style="width:28px;height:28px;font-size:12px" id="cplay-${s.id}" onclick="togglePreview('${s.id}', this)" title="Listen to a 30s preview">▶</button>`;
     if(c && c.chords){
-      html+=chordCardHTML(s.name, s.artist, c);
+      html+=chordCardHTML(s.name, s.artist, c, play);
+    }else if(chordFetching.has(s.id)){
+      html+=chordCardHTML(s.name, s.artist, null, play, `<div class="chord-note"><span class="spinner"></span>Getting chords...</div>`);
     }else{
-      html+=`<div class="chord-card"><b>${esc(s.name)}</b><small>${esc(s.artist)}</small>
-        <button class="btn small" id="chordbtn-${s.id}" onclick="getChords('${s.id}')">Get chords</button>
-        <div class="chord-note">Uses your Claude key, saved once</div></div>`;
+      html+=chordCardHTML(s.name, s.artist, null, play, `<div class="chord-note">${data.apiKey?'Chords load automatically...':'Add your Claude API key in Settings to load chords'}</div>`);
     }
   });
-  FAMOUS_CHORDS.forEach(f=>{ html+=chordCardHTML(f.name, f.artist, f); });
+  FAMOUS_CHORDS.forEach((f,i)=>{
+    const play=`<button class="play" style="width:28px;height:28px;font-size:12px" onclick="previewFamous(${i}, this)" title="Listen to a 30s preview">▶</button>`;
+    html+=chordCardHTML(f.name, f.artist, f, play);
+  });
   el.innerHTML=html;
+  setTimeout(autoFetchChords, 100);
 }
-window.getChords = async function(id){
+async function fetchChordsFor(id){
   const song=data.referenceSongs.find(s=>s.id===id);
+  if(!song || !data.apiKey || chordFetching.has(id)) return;
+  chordFetching.add(id);
+  renderChords();
   const st=document.getElementById('chordStatus');
-  if(!song) return;
-  if(!data.apiKey){ st.className='status err'; st.textContent='Add your Claude API key in Settings first.'; return; }
-  const btn=document.getElementById('chordbtn-'+id);
-  if(btn){ btn.disabled=true; btn.textContent='Loading...'; }
-  st.className='status'; st.textContent='Getting chords...';
   const prompt=`Give a simplified guitar chord progression for the main section (chorus or main loop) of "${song.name}" by ${song.artist}.
 Rules: use ONLY basic open guitar chords from this set: C, D, Dm, E, Em, F, G, A, Am, B7. Transpose to an easy key if needed (mention capo position in the note if it helps match the original). 3 to 6 chords.
 Respond with ONLY valid JSON, no markdown fences:
@@ -478,12 +488,26 @@ Respond with ONLY valid JSON, no markdown fences:
     const parsed=JSON.parse(text.slice(first,last+1));
     if(!data.chords) data.chords={};
     data.chords[id]={chords:parsed.chords, pattern:parsed.pattern||'', note:parsed.note||''};
-    st.className='status ok'; st.textContent='Chords saved!';
+    chordFetching.delete(id);
     touch();
   }catch(e){
-    st.className='status err'; st.textContent='Failed: '+e.message;
-    if(btn){ btn.disabled=false; btn.textContent='Get chords'; }
+    chordFetching.delete(id);
+    if(st){ st.className='status err'; st.textContent='Chords failed for '+song.name+': '+e.message; }
+    renderChords();
   }
+}
+let autoFetchRunning=false;
+async function autoFetchChords(){
+  if(autoFetchRunning || !uid || !data.apiKey) return;
+  const missing = data.referenceSongs.filter(s=>!(data.chords&&data.chords[s.id]) && !chordFetching.has(s.id));
+  if(!missing.length) return;
+  autoFetchRunning=true;
+  for(const s of missing){ await fetchChordsFor(s.id); }
+  autoFetchRunning=false;
+}
+window.previewFamous = function(i, btn){
+  const f=FAMOUS_CHORDS[i];
+  if(f) playPreview({name:f.name, artist:f.artist}, btn, null);
 };
 
 /* ================= SONG PREVIEWS (iTunes 30s clips) ================= */
