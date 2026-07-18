@@ -193,6 +193,16 @@
           </div>
           <div class="result-box" id="outStyle"></div>
         </div>
+        <div class="card">
+          <div class="flex-between">
+            <h2>Custom Request</h2>
+            <button class="play" id="micBtn" onclick="toggleMic()" title="Dictate your request — transcribes live as you speak" style="width:38px;height:38px;font-size:16px">🎤</button>
+          </div>
+          <p class="status" style="margin-top:0">Tell it exactly what to change — type it or hit the mic and talk (words appear as you speak). E.g. "Keep the chorus exactly, shorten verse 2, remove the bridge."</p>
+          <textarea id="customReq" style="min-height:80px" placeholder='e.g. "I love the chorus, keep it. Make verse 1 about the airport moment. Cut verse 3."'></textarea>
+          <button class="btn" id="applyReqBtn" onclick="applyCustomRequest()">🔁 Rewrite with my request</button>
+          <div class="status" id="reqStatus"></div>
+        </div>
         <button class="btn" onclick="generate()">🔄 Regenerate</button>
         <button class="btn secondary" onclick="newGeneration()">➕ Start new generation</button>
       </div>
@@ -680,6 +690,7 @@ Respond with ONLY valid JSON, no markdown fences:
     document.getElementById('outLyrics').textContent=parsed.lyrics;
     document.getElementById('outStyle').textContent=parsed.style;
     document.getElementById('results').classList.remove('hidden');
+    lastGenCtx={songName:song.name, artist:song.artist, topicName:(topic?topic.name:'Polish — no topic')};
     st.className='status ok'; st.textContent='Done!';
 
     data.history.unshift({
@@ -696,10 +707,107 @@ Respond with ONLY valid JSON, no markdown fences:
     btn.disabled=false;
   }
 };
+/* ================= CUSTOM REQUEST (text + live voice) ================= */
+let lastGenCtx = null; // {songName, artist, topicName}
+let recog=null, micOn=false, micBaseText='';
+window.toggleMic = function(){
+  const st=document.getElementById('reqStatus');
+  const btn=document.getElementById('micBtn');
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){ st.className='status err'; st.textContent='Live voice input isn\'t supported in this browser — try Chrome or Safari.'; return; }
+  if(micOn){ try{recog.stop();}catch(e){} return; }
+  recog=new SR();
+  recog.continuous=true; recog.interimResults=true;
+  recog.lang=(navigator.language&&navigator.language.startsWith('ru'))?'ru-RU':'en-US';
+  const ta=document.getElementById('customReq');
+  micBaseText=ta.value?ta.value.trim()+' ':'';
+  recog.onresult=(e)=>{
+    let finalTxt='', interim='';
+    for(let i=0;i<e.results.length;i++){
+      if(e.results[i].isFinal) finalTxt+=e.results[i][0].transcript+' ';
+      else interim+=e.results[i][0].transcript;
+    }
+    ta.value=micBaseText+finalTxt+interim;
+    ta.scrollTop=ta.scrollHeight;
+  };
+  recog.onstart=()=>{ micOn=true; btn.textContent='⏹'; btn.classList.add('playing'); st.className='status ok'; st.textContent='Listening... speak your request, tap ⏹ when done.'; };
+  recog.onend=()=>{ micOn=false; btn.textContent='🎤'; btn.classList.remove('playing'); if(st.textContent.startsWith('Listening')) {st.className='status'; st.textContent='Voice captured. Edit if needed, then hit Rewrite.';} };
+  recog.onerror=(e)=>{ micOn=false; btn.textContent='🎤'; btn.classList.remove('playing'); st.className='status err'; st.textContent='Mic error: '+e.error+(e.error==='not-allowed'?' — allow microphone access for this site.':''); };
+  recog.start();
+};
+window.applyCustomRequest = async function(){
+  const st=document.getElementById('reqStatus');
+  const req=document.getElementById('customReq').value.trim();
+  const curLyrics=document.getElementById('outLyrics').textContent;
+  const curStyle=document.getElementById('outStyle').textContent;
+  if(micOn){ try{recog.stop();}catch(e){} }
+  if(!req){ st.className='status err'; st.textContent='Type or dictate what you want changed first.'; return; }
+  if(!curLyrics){ st.className='status err'; st.textContent='Generate lyrics first.'; return; }
+  if(!data.apiKey){ st.className='status err'; st.textContent='Add your Claude API key in Settings first.'; return; }
+  const btn=document.getElementById('applyReqBtn');
+  btn.disabled=true;
+  st.className='status'; st.innerHTML='<span class="spinner"></span>Rewriting per your request...';
+  const prompt=`You are revising song lyrics for Suno (AI music generation).
+
+CURRENT LYRICS:
+"""
+${curLyrics}
+"""
+
+CURRENT STYLE PROMPT:
+"""
+${curStyle}
+"""
+
+USER'S REQUEST (follow it precisely — it may be transcribed speech, so interpret naturally):
+"""
+${req}
+"""
+
+Rules:
+- Apply EXACTLY what the request asks: keep untouched whatever they say to keep (word for word unless they allow small changes), change/shorten/remove/add what they ask.
+- Everything not mentioned in the request should stay as close to the current lyrics as possible.
+- Keep section tags like [Verse]/[Chorus].
+- Only change the style prompt if the request asks for style/music changes; otherwise return it unchanged.
+
+Respond with ONLY valid JSON, no markdown fences:
+{"lyrics": "...", "style": "..."}`;
+  try{
+    const res=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'x-api-key':data.apiKey,'anthropic-version':'2023-06-01','content-type':'application/json','anthropic-dangerous-direct-browser-access':'true'},
+      body: JSON.stringify({model:'claude-sonnet-4-5', max_tokens:4000, messages:[{role:'user',content:prompt}]})
+    });
+    if(!res.ok){ const err=await res.json().catch(()=>({})); throw new Error(err?.error?.message||('API error '+res.status)); }
+    const json=await res.json();
+    let text=json.content?.[0]?.text||'';
+    text=text.replace(/^```(json)?/m,'').replace(/```$/m,'').trim();
+    const first=text.indexOf('{'), last=text.lastIndexOf('}');
+    const parsed=JSON.parse(text.slice(first,last+1));
+    document.getElementById('outLyrics').textContent=parsed.lyrics;
+    document.getElementById('outStyle').textContent=parsed.style;
+    data.history.unshift({
+      id:uid8(), date:new Date().toISOString(),
+      songName:(lastGenCtx?lastGenCtx.songName:'—'), artist:(lastGenCtx?lastGenCtx.artist:''),
+      topicName:((lastGenCtx?lastGenCtx.topicName:'Custom')+' — revised'),
+      baseLyrics:curLyrics, lyrics:parsed.lyrics, style:parsed.style
+    });
+    if(data.history.length>100) data.history.length=100;
+    touch();
+    st.className='status ok'; st.textContent='Rewritten! Ask for more tweaks any time.';
+  }catch(e){
+    st.className='status err'; st.textContent='Failed: '+e.message;
+  }finally{
+    btn.disabled=false;
+  }
+};
+
 window.newGeneration = function(){
   document.getElementById('baseLyrics').value='';
   document.getElementById('results').classList.add('hidden');
   document.getElementById('genStatus').textContent='';
+  document.getElementById('customReq').value='';
+  document.getElementById('reqStatus').textContent='';
   window.scrollTo({top:0, behavior:'smooth'});
 };
 window.copyText = function(id, btn){
