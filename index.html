@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Suno Song Studio</title>
+<style>
+  :root{
+    --bg:#0d0f14; --panel:#161a22; --panel2:#1d222d; --border:#2a3140;
+    --text:#e8ebf0; --muted:#8b93a5; --accent:#7c5cff; --accent2:#b18cff;
+    --green:#3ecf8e; --red:#ff5c7a;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; min-height:100vh;}
+  .wrap{max-width:860px; margin:0 auto; padding:24px 16px 80px;}
+  header{display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; flex-wrap:wrap; gap:12px;}
+  h1{font-size:22px; font-weight:700; background:linear-gradient(90deg,var(--accent),var(--accent2)); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;}
+  nav{display:flex; gap:8px;}
+  nav button{background:var(--panel); border:1px solid var(--border); color:var(--muted); padding:8px 16px; border-radius:10px; cursor:pointer; font-size:14px; font-weight:600;}
+  nav button.active{background:var(--accent); border-color:var(--accent); color:#fff;}
+  .card{background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:20px; margin-bottom:16px;}
+  .card h2{font-size:15px; margin-bottom:12px; color:var(--accent2);}
+  label{display:block; font-size:12px; color:var(--muted); margin:10px 0 4px; font-weight:600; text-transform:uppercase; letter-spacing:.5px;}
+  input,textarea,select{width:100%; background:var(--panel2); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:10px 12px; font-size:14px; font-family:inherit;}
+  textarea{min-height:160px; resize:vertical; line-height:1.5;}
+  input:focus,textarea:focus,select:focus{outline:none; border-color:var(--accent);}
+  .btn{background:var(--accent); color:#fff; border:none; border-radius:10px; padding:12px 22px; font-size:15px; font-weight:700; cursor:pointer; margin-top:14px;}
+  .btn:hover{filter:brightness(1.1);}
+  .btn:disabled{opacity:.5; cursor:not-allowed;}
+  .btn.secondary{background:var(--panel2); border:1px solid var(--border); color:var(--text);}
+  .btn.small{padding:7px 14px; font-size:13px; margin-top:8px;}
+  .row{display:flex; gap:10px; flex-wrap:wrap;}
+  .row>div{flex:1; min-width:180px;}
+  .list-item{display:flex; justify-content:space-between; align-items:center; background:var(--panel2); border:1px solid var(--border); border-radius:8px; padding:10px 12px; margin-top:8px; gap:10px;}
+  .list-item .info{font-size:14px; overflow:hidden;}
+  .list-item .info small{color:var(--muted); display:block; font-size:12px; white-space:pre-wrap;}
+  .del{background:none; border:none; color:var(--red); cursor:pointer; font-size:16px; flex-shrink:0;}
+  .result-box{background:var(--panel2); border:1px solid var(--border); border-radius:10px; padding:14px; white-space:pre-wrap; font-size:14px; line-height:1.6; margin-top:8px;}
+  .copy-btn{background:var(--panel2); border:1px solid var(--border); color:var(--accent2); border-radius:8px; padding:5px 12px; font-size:12px; cursor:pointer; font-weight:600;}
+  .copy-btn:active{background:var(--accent); color:#fff;}
+  .flex-between{display:flex; justify-content:space-between; align-items:center;}
+  .status{font-size:13px; color:var(--muted); margin-top:10px; min-height:18px;}
+  .status.err{color:var(--red);} .status.ok{color:var(--green);}
+  .spinner{display:inline-block; width:14px; height:14px; border:2px solid var(--muted); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; vertical-align:middle; margin-right:6px;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .hidden{display:none !important;}
+  .hist-item{cursor:pointer;}
+  .hist-detail{margin-top:10px;}
+  .badge{display:inline-block; background:var(--panel2); border:1px solid var(--border); color:var(--muted); font-size:11px; padding:2px 8px; border-radius:20px; margin-right:6px;}
+  .sync-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px;background:var(--muted);}
+  .sync-dot.ok{background:var(--green);} .sync-dot.err{background:var(--red);}
+  #addSongInline{background:var(--panel2); border:1px dashed var(--accent); border-radius:10px; padding:12px; margin-top:8px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🎵 Suno Song Studio</h1>
+    <nav>
+      <button id="tab-create" class="active" onclick="showTab('create')">Create</button>
+      <button id="tab-history" onclick="showTab('history')">History</button>
+      <button id="tab-settings" onclick="showTab('settings')">Settings</button>
+    </nav>
+  </header>
+
+  <!-- ============ CREATE ============ -->
+  <section id="view-create">
+    <div class="card">
+      <h2>New Song</h2>
+      <label>Base lyrics (the lyrics to transform)</label>
+      <textarea id="baseLyrics" placeholder="Paste your base lyrics here..."></textarea>
+
+      <div class="row">
+        <div>
+          <label>Reference song (style)</label>
+          <select id="refSelect" onchange="onRefSelect()"></select>
+        </div>
+        <div>
+          <label>Topic</label>
+          <select id="topicSelect"></select>
+        </div>
+      </div>
+
+      <div id="addSongInline" class="hidden">
+        <label>New song name</label>
+        <input id="inlineSongName" placeholder="e.g. Blinding Lights">
+        <label>Artist</label>
+        <input id="inlineSongArtist" placeholder="e.g. The Weeknd">
+        <button class="btn small" onclick="saveInlineSong()">Save song</button>
+        <button class="btn small secondary" onclick="cancelInlineSong()">Cancel</button>
+      </div>
+
+      <button class="btn" id="generateBtn" onclick="generate()">✨ Generate</button>
+      <div class="status" id="genStatus"></div>
+    </div>
+
+    <div id="results" class="hidden">
+      <div class="card">
+        <div class="flex-between">
+          <h2>Generated Lyrics</h2>
+          <button class="copy-btn" onclick="copyText('outLyrics', this)">Copy</button>
+        </div>
+        <div class="result-box" id="outLyrics"></div>
+      </div>
+      <div class="card">
+        <div class="flex-between">
+          <h2>Suno Style Prompt</h2>
+          <button class="copy-btn" onclick="copyText('outStyle', this)">Copy</button>
+        </div>
+        <div class="result-box" id="outStyle"></div>
+      </div>
+      <button class="btn" onclick="generate()">🔄 Regenerate</button>
+      <button class="btn secondary" onclick="newGeneration()">➕ Start new generation</button>
+    </div>
+  </section>
+
+  <!-- ============ HISTORY ============ -->
+  <section id="view-history" class="hidden">
+    <div class="card">
+      <h2>History</h2>
+      <div id="historyList"><p class="status">No generations yet.</p></div>
+    </div>
+  </section>
+
+  <!-- ============ SETTINGS ============ -->
+  <section id="view-settings" class="hidden">
+    <div class="card">
+      <h2>Reference Songs</h2>
+      <div class="row">
+        <div><label>Song name</label><input id="songName" placeholder="e.g. Blinding Lights"></div>
+        <div><label>Artist</label><input id="songArtist" placeholder="e.g. The Weeknd"></div>
+      </div>
+      <button class="btn small" onclick="addSong()">+ Add song</button>
+      <div id="songList"></div>
+    </div>
+
+    <div class="card">
+      <h2>My Song Topics</h2>
+      <label>Topic name</label>
+      <input id="topicName" placeholder="e.g. Chasing your dreams">
+      <label>Topic description (any details, themes, imagery...)</label>
+      <textarea id="topicText" style="min-height:80px" placeholder="Describe the topic in as much detail as you want..."></textarea>
+      <button class="btn small" onclick="addTopic()">+ Add topic</button>
+      <div id="topicList"></div>
+    </div>
+
+    <div class="card">
+      <h2>Claude API Key</h2>
+      <p class="status">Used to generate lyrics & styles. Stored only in this browser — never synced. Get one at console.anthropic.com.</p>
+      <label>API key</label>
+      <input id="apiKey" type="password" placeholder="sk-ant-...">
+      <button class="btn small" onclick="saveApiKey()">Save key</button>
+      <div class="status" id="keyStatus"></div>
+    </div>
+
+    <div class="card">
+      <h2><span class="sync-dot" id="syncDot"></span>Cloud Sync (GitHub Gist)</h2>
+      <p class="status">Songs, topics & history are saved to a private GitHub Gist so they sync across devices. Create a token at github.com/settings/tokens with only the "gist" scope. The token stays in this browser.</p>
+      <label>GitHub token (gist scope)</label>
+      <input id="ghToken" type="password" placeholder="ghp_... or github_pat_...">
+      <button class="btn small" onclick="connectSync()">Connect & sync</button>
+      <button class="btn small secondary" onclick="syncNow()">Sync now</button>
+      <div class="status" id="syncStatus"></div>
+    </div>
+  </section>
+</div>
+
+<script>
+/* ================= STATE ================= */
+const LS_DATA='sunoStudio.data', LS_SECRETS='sunoStudio.secrets';
+let data = { referenceSongs:[], topics:[], history:[], updatedAt:0 };
+let secrets = { apiKey:'', ghToken:'', gistId:'' };
+let syncTimer = null;
+
+function loadLocal(){
+  try{ const d=JSON.parse(localStorage.getItem(LS_DATA)); if(d) data={...data,...d}; }catch(e){}
+  try{ const s=JSON.parse(localStorage.getItem(LS_SECRETS)); if(s) secrets={...secrets,...s}; }catch(e){}
+}
+function saveLocal(){ localStorage.setItem(LS_DATA, JSON.stringify(data)); }
+function saveSecrets(){ localStorage.setItem(LS_SECRETS, JSON.stringify(secrets)); }
+function touch(){ data.updatedAt=Date.now(); saveLocal(); renderAll(); schedulePush(); }
+function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
+function esc(s){ return String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+/* ================= TABS ================= */
+function showTab(t){
+  ['create','history','settings'].forEach(x=>{
+    document.getElementById('view-'+x).classList.toggle('hidden', x!==t);
+    document.getElementById('tab-'+x).classList.toggle('active', x===t);
+  });
+}
+
+/* ================= REFERENCE SONGS ================= */
+function addSong(){
+  const n=document.getElementById('songName').value.trim();
+  const a=document.getElementById('songArtist').value.trim();
+  if(!n||!a) return alert('Enter both song name and artist.');
+  data.referenceSongs.push({id:uid(), name:n, artist:a});
+  document.getElementById('songName').value=''; document.getElementById('songArtist').value='';
+  touch();
+}
+function delSong(id){ data.referenceSongs=data.referenceSongs.filter(s=>s.id!==id); touch(); }
+function renderSongs(){
+  const el=document.getElementById('songList');
+  el.innerHTML = data.referenceSongs.map(s=>
+    `<div class="list-item"><div class="info"><b>${esc(s.name)}</b><small>${esc(s.artist)}</small></div>
+     <button class="del" onclick="delSong('${s.id}')">✕</button></div>`).join('') || '<p class="status">No reference songs yet.</p>';
+  const sel=document.getElementById('refSelect');
+  const cur=sel.value;
+  sel.innerHTML = '<option value="">— choose reference song —</option>' +
+    data.referenceSongs.map(s=>`<option value="${s.id}">${esc(s.name)} — ${esc(s.artist)}</option>`).join('') +
+    '<option value="__add__">➕ Add a new song...</option>';
+  if([...sel.options].some(o=>o.value===cur)) sel.value=cur;
+}
+function onRefSelect(){
+  const v=document.getElementById('refSelect').value;
+  document.getElementById('addSongInline').classList.toggle('hidden', v!=='__add__');
+}
+function saveInlineSong(){
+  const n=document.getElementById('inlineSongName').value.trim();
+  const a=document.getElementById('inlineSongArtist').value.trim();
+  if(!n||!a) return alert('Enter both song name and artist.');
+  const s={id:uid(), name:n, artist:a};
+  data.referenceSongs.push(s);
+  document.getElementById('inlineSongName').value=''; document.getElementById('inlineSongArtist').value='';
+  document.getElementById('addSongInline').classList.add('hidden');
+  touch();
+  document.getElementById('refSelect').value=s.id;
+}
+function cancelInlineSong(){
+  document.getElementById('addSongInline').classList.add('hidden');
+  document.getElementById('refSelect').value='';
+}
+
+/* ================= TOPICS ================= */
+function addTopic(){
+  const n=document.getElementById('topicName').value.trim();
+  const t=document.getElementById('topicText').value.trim();
+  if(!n) return alert('Enter a topic name.');
+  data.topics.push({id:uid(), name:n, text:t});
+  document.getElementById('topicName').value=''; document.getElementById('topicText').value='';
+  touch();
+}
+function delTopic(id){ data.topics=data.topics.filter(t=>t.id!==id); touch(); }
+function renderTopics(){
+  const el=document.getElementById('topicList');
+  el.innerHTML = data.topics.map(t=>
+    `<div class="list-item"><div class="info"><b>${esc(t.name)}</b><small>${esc(t.text)}</small></div>
+     <button class="del" onclick="delTopic('${t.id}')">✕</button></div>`).join('') || '<p class="status">No topics yet.</p>';
+  const sel=document.getElementById('topicSelect');
+  const cur=sel.value;
+  sel.innerHTML = '<option value="">— choose topic —</option>' +
+    data.topics.map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join('');
+  if([...sel.options].some(o=>o.value===cur)) sel.value=cur;
+}
+
+/* ================= GENERATION ================= */
+async function generate(){
+  const base=document.getElementById('baseLyrics').value.trim();
+  const refId=document.getElementById('refSelect').value;
+  const topicId=document.getElementById('topicSelect').value;
+  const st=document.getElementById('genStatus');
+  if(!secrets.apiKey){ st.className='status err'; st.textContent='Add your Claude API key in Settings first.'; return; }
+  if(!base){ st.className='status err'; st.textContent='Paste some base lyrics first.'; return; }
+  const song=data.referenceSongs.find(s=>s.id===refId);
+  const topic=data.topics.find(t=>t.id===topicId);
+  if(!song){ st.className='status err'; st.textContent='Choose a reference song.'; return; }
+  if(!topic){ st.className='status err'; st.textContent='Choose a topic.'; return; }
+
+  const btn=document.getElementById('generateBtn');
+  btn.disabled=true;
+  st.className='status'; st.innerHTML='<span class="spinner"></span>Generating with Claude...';
+
+  const prompt = `You are an expert songwriter and music producer helping create prompts for Suno (AI music generation).
+
+REFERENCE SONG: "${song.name}" by ${song.artist}
+TOPIC: ${topic.name}${topic.text ? ' — ' + topic.text : ''}
+BASE LYRICS:
+"""
+${base}
+"""
+
+Do two tasks:
+
+1. NEW LYRICS: Rewrite the base lyrics into new lyrics about the given TOPIC. Keep the overall length, line count, section structure (verses, chorus, bridge, etc.) and rhythm/singability very close to the base lyrics. Keep section tags like [Verse]/[Chorus] if present, or add them if helpful for Suno.
+
+2. STYLE PROMPT: Write a detailed Suno style description capturing the musical style of the reference song: genre and sub-genre, tempo/BPM feel, mood, key instrumentation, production characteristics, vocal style (gender, tone, delivery), and era/sound. IMPORTANT: do NOT mention the artist name or song title anywhere in the style description (Suno rejects artist names). Keep it under 900 characters, written as a comma-separated descriptive prompt.
+
+Respond with ONLY valid JSON, no markdown fences:
+{"lyrics": "...", "style": "..."}`;
+
+  try{
+    const res = await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{
+        'x-api-key':secrets.apiKey,
+        'anthropic-version':'2023-06-01',
+        'content-type':'application/json',
+        'anthropic-dangerous-direct-browser-access':'true'
+      },
+      body: JSON.stringify({model:'claude-sonnet-4-5', max_tokens:4000, messages:[{role:'user',content:prompt}]})
+    });
+    if(!res.ok){
+      const err=await res.json().catch(()=>({}));
+      throw new Error(err?.error?.message || ('API error '+res.status));
+    }
+    const json=await res.json();
+    let text=json.content?.[0]?.text || '';
+    text=text.replace(/^```(json)?/m,'').replace(/```$/m,'').trim();
+    const first=text.indexOf('{'), last=text.lastIndexOf('}');
+    const parsed=JSON.parse(text.slice(first, last+1));
+
+    document.getElementById('outLyrics').textContent=parsed.lyrics;
+    document.getElementById('outStyle').textContent=parsed.style;
+    document.getElementById('results').classList.remove('hidden');
+    st.className='status ok'; st.textContent='Done!';
+
+    data.history.unshift({
+      id:uid(), date:new Date().toISOString(),
+      songName:song.name, artist:song.artist, topicName:topic.name,
+      baseLyrics:base, lyrics:parsed.lyrics, style:parsed.style
+    });
+    if(data.history.length>100) data.history.length=100;
+    touch();
+    document.getElementById('results').scrollIntoView({behavior:'smooth'});
+  }catch(e){
+    st.className='status err'; st.textContent='Generation failed: '+e.message;
+  }finally{
+    btn.disabled=false;
+  }
+}
+function newGeneration(){
+  document.getElementById('baseLyrics').value='';
+  document.getElementById('results').classList.add('hidden');
+  document.getElementById('genStatus').textContent='';
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+function copyText(id, btn){
+  navigator.clipboard.writeText(document.getElementById(id).textContent).then(()=>{
+    const old=btn.textContent; btn.textContent='Copied!'; setTimeout(()=>btn.textContent=old,1200);
+  });
+}
+
+/* ================= HISTORY ================= */
+function renderHistory(){
+  const el=document.getElementById('historyList');
+  if(!data.history.length){ el.innerHTML='<p class="status">No generations yet.</p>'; return; }
+  el.innerHTML=data.history.map(h=>{
+    const d=new Date(h.date);
+    return `<div class="list-item hist-item" onclick="toggleHist('${h.id}')">
+      <div class="info" style="width:100%">
+        <b>${esc(h.topicName)}</b>
+        <small>${esc(h.songName)} — ${esc(h.artist)} · ${d.toLocaleDateString()} ${d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</small>
+        <div class="hist-detail hidden" id="hist-${h.id}" onclick="event.stopPropagation()">
+          <span class="badge">Lyrics</span><button class="copy-btn" onclick="copyHist('${h.id}','lyrics',this)">Copy</button>
+          <div class="result-box">${esc(h.lyrics)}</div>
+          <div style="margin-top:10px"><span class="badge">Style</span><button class="copy-btn" onclick="copyHist('${h.id}','style',this)">Copy</button></div>
+          <div class="result-box">${esc(h.style)}</div>
+        </div>
+      </div>
+      <button class="del" onclick="event.stopPropagation();delHist('${h.id}')">✕</button>
+    </div>`;
+  }).join('');
+}
+function toggleHist(id){ document.getElementById('hist-'+id).classList.toggle('hidden'); }
+function delHist(id){ data.history=data.history.filter(h=>h.id!==id); touch(); }
+function copyHist(id, field, btn){
+  const h=data.history.find(x=>x.id===id);
+  navigator.clipboard.writeText(h[field]).then(()=>{
+    const old=btn.textContent; btn.textContent='Copied!'; setTimeout(()=>btn.textContent=old,1200);
+  });
+}
+
+/* ================= SETTINGS: API KEY ================= */
+function saveApiKey(){
+  secrets.apiKey=document.getElementById('apiKey').value.trim();
+  saveSecrets();
+  const s=document.getElementById('keyStatus');
+  s.className='status ok'; s.textContent=secrets.apiKey?'Key saved.':'Key cleared.';
+}
+
+/* ================= GIST SYNC ================= */
+const GIST_FILE='suno-studio-data.json';
+function ghHeaders(){ return {'Authorization':'Bearer '+secrets.ghToken, 'Accept':'application/vnd.github+json'}; }
+function setSyncStatus(msg, cls){ const s=document.getElementById('syncStatus'); s.className='status '+(cls||''); s.textContent=msg;
+  document.getElementById('syncDot').className='sync-dot '+(cls==='ok'?'ok':cls==='err'?'err':''); }
+
+async function connectSync(){
+  const tok=document.getElementById('ghToken').value.trim();
+  if(!tok) return setSyncStatus('Paste a GitHub token first.','err');
+  secrets.ghToken=tok; saveSecrets();
+  setSyncStatus('Connecting...');
+  try{
+    if(!secrets.gistId){
+      // look for an existing studio gist
+      const list=await fetch('https://api.github.com/gists?per_page=100',{headers:ghHeaders()});
+      if(!list.ok) throw new Error('Token rejected ('+list.status+'). Make sure it has the gist scope.');
+      const gists=await list.json();
+      const found=gists.find(g=>g.files && g.files[GIST_FILE]);
+      if(found){ secrets.gistId=found.id; saveSecrets(); await pullFromGist(); }
+      else{
+        const res=await fetch('https://api.github.com/gists',{method:'POST', headers:ghHeaders(),
+          body:JSON.stringify({description:'Suno Song Studio data', public:false,
+            files:{[GIST_FILE]:{content:JSON.stringify(syncPayload())}}})});
+        if(!res.ok) throw new Error('Could not create gist ('+res.status+')');
+        const g=await res.json(); secrets.gistId=g.id; saveSecrets();
+      }
+    } else { await syncNow(); return; }
+    setSyncStatus('Connected! Data syncs automatically.','ok');
+  }catch(e){ setSyncStatus(e.message,'err'); }
+}
+function syncPayload(){ return {referenceSongs:data.referenceSongs, topics:data.topics, history:data.history, updatedAt:data.updatedAt}; }
+async function pullFromGist(){
+  if(!secrets.ghToken||!secrets.gistId) return;
+  const res=await fetch('https://api.github.com/gists/'+secrets.gistId,{headers:ghHeaders()});
+  if(!res.ok){ if(res.status===404){secrets.gistId=''; saveSecrets();} throw new Error('Could not read gist ('+res.status+')'); }
+  const g=await res.json();
+  const content=g.files?.[GIST_FILE]?.content;
+  if(content){
+    try{
+      const remote=JSON.parse(content);
+      if((remote.updatedAt||0) > (data.updatedAt||0)){
+        data={...data, ...remote}; saveLocal(); renderAll();
+      }
+    }catch(e){}
+  }
+}
+async function pushToGist(){
+  if(!secrets.ghToken||!secrets.gistId) return;
+  const res=await fetch('https://api.github.com/gists/'+secrets.gistId,{method:'PATCH', headers:ghHeaders(),
+    body:JSON.stringify({files:{[GIST_FILE]:{content:JSON.stringify(syncPayload())}}})});
+  if(!res.ok) throw new Error('Sync push failed ('+res.status+')');
+}
+function schedulePush(){
+  if(!secrets.ghToken||!secrets.gistId) return;
+  clearTimeout(syncTimer);
+  syncTimer=setTimeout(async()=>{
+    try{ await pushToGist(); setSyncStatus('Synced '+new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}),'ok'); }
+    catch(e){ setSyncStatus(e.message,'err'); }
+  }, 1500);
+}
+async function syncNow(){
+  if(!secrets.ghToken) return setSyncStatus('Connect first (paste a token).','err');
+  setSyncStatus('Syncing...');
+  try{ await pullFromGist(); await pushToGist(); setSyncStatus('Synced!','ok'); }
+  catch(e){ setSyncStatus(e.message,'err'); }
+}
+
+/* ================= INIT ================= */
+function renderAll(){ renderSongs(); renderTopics(); renderHistory(); }
+loadLocal();
+renderAll();
+if(secrets.apiKey) document.getElementById('apiKey').value=secrets.apiKey;
+if(secrets.ghToken){ document.getElementById('ghToken').value=secrets.ghToken;
+  pullFromGist().then(()=>setSyncStatus('Connected. Last pulled just now.','ok')).catch(e=>setSyncStatus(e.message,'err'));
+}
+</script>
+</body>
+</html>
