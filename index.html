@@ -66,6 +66,15 @@
   .list-item.compact{padding:7px 10px;}
   .list-item.compact .info{font-size:13px;}
   .list-item.compact .info small{font-size:11px;}
+  .dd{position:relative;}
+  .dd-btn{width:100%; display:flex; justify-content:space-between; align-items:center; gap:8px; background:var(--panel2); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:10px 12px; font-size:14px; cursor:pointer; font-family:inherit; text-align:left;}
+  .dd-btn span:first-child{overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .dd-panel{position:absolute; top:calc(100% + 4px); left:0; right:0; background:var(--panel); border:1px solid var(--border); border-radius:10px; max-height:320px; overflow-y:auto; z-index:50; box-shadow:0 10px 30px rgba(0,0,0,.5);}
+  .dd-item{display:flex; justify-content:space-between; align-items:center; gap:8px; padding:9px 12px; cursor:pointer; font-size:14px;}
+  .dd-item:hover{background:var(--panel2);}
+  .dd-item.sel{color:var(--accent2); font-weight:700;}
+  .dd-item .play{width:26px; height:26px; font-size:11px; flex-shrink:0;}
+  .dd-item span{overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
   .chord-note{margin-top:4px; font-size:12px; color:var(--muted); font-style:italic;}
   .result-box{background:var(--panel2); border:1px solid var(--border); border-radius:10px; padding:14px; white-space:pre-wrap; font-size:14px; line-height:1.6; margin-top:8px;}
   .copy-btn{background:var(--panel2); border:1px solid var(--border); color:var(--accent2); border-radius:8px; padding:5px 12px; font-size:12px; cursor:pointer; font-weight:600;}
@@ -137,7 +146,10 @@
         <div class="row">
           <div id="refBlock">
             <label>Reference song (style)</label>
-            <select id="refSelect" onchange="onRefSelect()"></select>
+            <div class="dd">
+              <button class="dd-btn" id="refDDBtn" onclick="toggleRefDD(event)"><span id="refDDLabel">— choose reference song —</span><span>▾</span></button>
+              <div class="dd-panel hidden" id="refDDPanel"></div>
+            </div>
             <div class="preview-inline">
               <button class="play" id="createPreviewBtn" onclick="previewSelected(this)" title="Listen to a 30s preview">▶</button>
               <span class="status" id="previewStatus" style="margin-top:0">Preview the selected song</span>
@@ -387,17 +399,38 @@ function renderSongs(){
      <button class="play" style="width:26px;height:26px;font-size:11px" onclick="togglePreview('${s.id}', this)" title="30s preview">▶</button>
      <button class="del" onclick="delSong('${s.id}')">✕</button></div>`).join('') || '<p class="status">No reference songs yet.</p>')
     + (slist.length>settingsView.songs?`<button class="loadmore" onclick="moreSongs()">Load more ↓ (${slist.length-settingsView.songs} more)</button>`:'');
-  const sel=document.getElementById('refSelect');
-  const cur=sel.value;
-  sel.innerHTML = '<option value="">— choose reference song —</option>' +
-    data.referenceSongs.map(s=>`<option value="${s.id}">${esc(s.name)} — ${esc(s.artist)}</option>`).join('') +
-    '<option value="__add__">➕ Add a new song...</option>';
-  if([...sel.options].some(o=>o.value===cur)) sel.value=cur;
+  renderRefDD();
 }
-window.onRefSelect = function(){
-  const v=document.getElementById('refSelect').value;
-  document.getElementById('addSongInline').classList.toggle('hidden', v!=='__add__');
+let refSelectedId='';
+function renderRefDD(){
+  const p=document.getElementById('refDDPanel');
+  if(!p) return;
+  p.innerHTML = `<div class="dd-item" onclick="selectRef('')"><span>— choose reference song —</span></div>` +
+    data.referenceSongs.map(s=>`<div class="dd-item ${s.id===refSelectedId?'sel':''}" onclick="selectRef('${s.id}')">
+      <span>${esc(s.name)} — ${esc(s.artist)}</span>
+      <button class="play" onclick="event.stopPropagation();togglePreview('${s.id}', this)" title="30s preview">▶</button></div>`).join('') +
+    `<div class="dd-item" onclick="ddAddNew()"><span>➕ Add a new song...</span></div>`;
+  const s=data.referenceSongs.find(x=>x.id===refSelectedId);
+  if(!s && refSelectedId){ refSelectedId=''; document.getElementById('refDDLabel').textContent='— choose reference song —'; }
+}
+window.toggleRefDD = function(e){ e.stopPropagation(); document.getElementById('refDDPanel').classList.toggle('hidden'); };
+window.selectRef = function(id){
+  refSelectedId=id;
+  const s=data.referenceSongs.find(x=>x.id===id);
+  document.getElementById('refDDLabel').textContent = s ? s.name+' — '+s.artist : '— choose reference song —';
+  document.getElementById('refDDPanel').classList.add('hidden');
+  document.getElementById('addSongInline').classList.add('hidden');
+  renderRefDD();
 };
+window.ddAddNew = function(){
+  document.getElementById('refDDPanel').classList.add('hidden');
+  document.getElementById('addSongInline').classList.remove('hidden');
+};
+document.addEventListener('click', (e)=>{
+  const p=document.getElementById('refDDPanel');
+  const b=document.getElementById('refDDBtn');
+  if(p && !p.classList.contains('hidden') && !p.contains(e.target) && e.target!==b && !b.contains(e.target)) p.classList.add('hidden');
+});
 window.saveInlineSong = function(){
   const n=document.getElementById('inlineSongName').value.trim();
   const a=document.getElementById('inlineSongArtist').value.trim();
@@ -407,11 +440,10 @@ window.saveInlineSong = function(){
   document.getElementById('inlineSongName').value=''; document.getElementById('inlineSongArtist').value='';
   document.getElementById('addSongInline').classList.add('hidden');
   touch();
-  document.getElementById('refSelect').value=s.id;
+  selectRef(s.id);
 };
 window.cancelInlineSong = function(){
   document.getElementById('addSongInline').classList.add('hidden');
-  document.getElementById('refSelect').value='';
 };
 
 /* ================= TOPICS ================= */
@@ -608,8 +640,7 @@ window.togglePreview = function(id, btn){
 };
 window.previewSelected = function(btn){
   const st = document.getElementById('previewStatus');
-  const id = document.getElementById('refSelect').value;
-  const song = data.referenceSongs.find(s=>s.id===id);
+  const song = data.referenceSongs.find(s=>s.id===refSelectedId);
   if(!song){ st.textContent='Choose a reference song first.'; return; }
   playPreview(song, btn, st);
 };
@@ -625,7 +656,7 @@ window.saveApiKey = function(){
 /* ================= GENERATION ================= */
 window.generate = async function(){
   const base=document.getElementById('baseLyrics').value.trim();
-  const refId=document.getElementById('refSelect').value;
+  const refId=refSelectedId;
   const topicId=document.getElementById('topicSelect').value;
   const st=document.getElementById('genStatus');
   if(!data.apiKey){ st.className='status err'; st.textContent='Add your Claude API key in Settings first.'; return; }
